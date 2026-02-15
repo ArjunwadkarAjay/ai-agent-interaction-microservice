@@ -1,0 +1,20 @@
+from pydantic import BaseModel
+from typing import Optional, List
+from uuid import UUID
+
+class ChatRequest(BaseModel):
+    message: str
+    session_id: Optional[UUID] = None
+    domain: Optional[str] = None
+    stream: bool = False
+    model: Optional[str] = None
+    temperature: Optional[float] = 0.7
+
+class ChatResponse(BaseModel):
+    response: str
+    session_id: UUID
+
+class UploadResponse(BaseModel):
+    filename: str
+    domain: str
+    status: str
