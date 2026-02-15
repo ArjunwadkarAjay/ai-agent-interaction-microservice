@@ -32,7 +32,7 @@ async def upload_document(
             buffer.write(content)
 
         # 3. Track in DB
-        await crud.create_document(db, file.filename, domain, file_path)
+        db_document = await crud.create_document(db, file.filename, domain, file_path)
 
         # 4. Process Content for ChromaDB
         text_content = content.decode("utf-8") # Simplified text extraction (improve for PDF/DOCX)
@@ -44,7 +44,14 @@ async def upload_document(
 
         vector_store.add_documents(domain, chunks, metadatas, ids)
 
-        return UploadResponse(filename=file.filename, domain=domain, status="success")
+        return UploadResponse(
+            id=db_document.id,
+            filename=db_document.filename,
+            domain=db_document.domain,
+            file_path=db_document.file_path,
+            created_at=db_document.created_at,
+            status="success"
+        )
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

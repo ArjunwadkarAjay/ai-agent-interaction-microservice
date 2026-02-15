@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 from uuid import UUID
 
 class ChatRequest(BaseModel):
@@ -15,6 +16,9 @@ class ChatResponse(BaseModel):
     session_id: UUID
 
 class UploadResponse(BaseModel):
+    id: int
     filename: str
     domain: str
+    file_path: str
+    created_at: datetime
     status: str
