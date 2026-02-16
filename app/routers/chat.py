@@ -47,7 +47,7 @@ async def chat_endpoint(request: ChatRequest):
         # Using (New Summary + Last N) is better for token efficiency.
         
         # Let's keep the last 5 messages raw, and summarize the rest including previous summary
-        retention_count = 5
+        retention_count = 6
         to_summarize = messages[:-retention_count]
         active_history = messages[-retention_count:]
         

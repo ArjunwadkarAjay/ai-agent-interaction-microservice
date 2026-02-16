@@ -26,6 +26,10 @@ MANIFEST
 venv/
 env/
 ENV/
+.venv/
+
+# Pytest
+.pytest_cache/
 
 # Environment Variables
 .env

@@ -5,3 +5,5 @@ openai
 python-multipart
 pydantic-settings
 python-dotenv
+pytest
+httpx
