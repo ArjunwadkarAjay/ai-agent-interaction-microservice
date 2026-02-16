@@ -1,39 +1,28 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from app.vector_store import vector_store
 from app.schemas import UploadResponse
-from app.config import settings
-from app.database import get_db
-from app import crud
 import uuid
-import os
-import shutil
 
 router = APIRouter()
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_document(
     file: UploadFile = File(...),
-    domain: str = Form(...),
-    db: AsyncSession = Depends(get_db)
+    domain: str = Form(...)
 ):
     try:
-        # 1. Prepare Directory
-        upload_path = os.path.join(settings.UPLOAD_DIR, domain)
-        os.makedirs(upload_path, exist_ok=True)
-        file_path = os.path.join(upload_path, file.filename)
-
-        # 2. Save File to Disk
-        # We read into memory first to simplify both saving and processing (text extraction)
-        # For very large files, this should be streamed, but for this agent context, it's acceptable.
+        # 1. Processing in Memory
+        # We do NOT save to disk as per "no persistence" requirement.
+        
+        # 2. Read File Content
         content = await file.read()
         
-        with open(file_path, "wb") as buffer:
-            buffer.write(content)
+        # Virtual path for metadata (not used for actual retrieval)
+        file_path = f"memory://{domain}/{file.filename}"
 
-        # 3. Track in DB
-        db_document = await crud.create_document(db, file.filename, domain, file_path)
-
+        # 3. Track in DB - SKIPPED (Stateless)
+        # db_document = await crud.create_document(db, file.filename, domain, file_path)
+        
         # 4. Process Content for ChromaDB
         text_content = content.decode("utf-8") # Simplified text extraction (improve for PDF/DOCX)
         
@@ -44,12 +33,13 @@ async def upload_document(
 
         vector_store.add_documents(domain, chunks, metadatas, ids)
 
+        # Return dummy ID since we don't have a DB
         return UploadResponse(
-            id=db_document.id,
-            filename=db_document.filename,
-            domain=db_document.domain,
-            file_path=db_document.file_path,
-            created_at=db_document.created_at,
+            id=0,
+            filename=file.filename,
+            domain=domain,
+            file_path=file_path,
+            created_at=uuid.uuid1().time, # Dummy timestamp or use datetime.now() if schema allows
             status="success"
         )
     

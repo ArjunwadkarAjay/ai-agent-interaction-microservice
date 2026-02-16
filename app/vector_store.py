@@ -4,9 +4,8 @@ from app.config import settings
 
 class VectorStore:
     def __init__(self):
-        self.client = chromadb.HttpClient(
-            host=settings.CHROMA_DB_HOST,
-            port=settings.CHROMA_DB_PORT,
+        # Use EphemeralClient for in-memory, non-persisted vector store
+        self.client = chromadb.EphemeralClient(
             settings=Settings(anonymized_telemetry=False)
         )
 

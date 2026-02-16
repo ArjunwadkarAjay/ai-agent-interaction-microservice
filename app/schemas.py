@@ -3,9 +3,14 @@ from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 
+class Message(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     message: str
-    session_id: Optional[UUID] = None
+    messages: List[Message] = []
+    summary: Optional[str] = None
     domain: Optional[str] = None
     stream: bool = False
     model: Optional[str] = None
@@ -13,7 +18,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
-    session_id: UUID
+    updated_summary: Optional[str] = None
+    updated_history: List[Message] = []
 
 class UploadResponse(BaseModel):
     id: int

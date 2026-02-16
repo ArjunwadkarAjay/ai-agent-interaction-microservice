@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import chat, document
-from app.database import engine, Base
-import app.models # Register models
+# Database deps removed
 import asyncio
 
 app = FastAPI(title="Local AI Agent App")
