@@ -1,74 +1,115 @@
 # Local AI Agent App
 
-A generalized AI agent application that interacts with any OpenAI-compliant inference endpoint. It features persistent conversation history, domain-specific document management with vector search, and automatic summarization.
+A high-performance, stateless AI agent application designed for local deployment. It features **WebSocket streaming**, **domain-aware RAG (Retrieval-Augmented Generation)**, and **automatic conversation summarization**.
 
-## Features
+## 🚀 Features
 
-- **OpenAI-Compatible Inference**: Works with any provider (OpenAI, LocalAI, vLLM, etc.).
-- **Smart Conversation History**:
-  - Automatically summarizes conversations exceeding a configurable threshold.
-  - Initial system prompt injected with summary and relevant context.
-- **Domain-Specific Knowledge**:
-  - Upload documents (TXT, etc.) associated with specific "Domains".
-  - Documents are chunked, embedded in ChromaDB, and **persisted to disk**.
-  - Relevant context is retrieved during chats based on the specified domain.
-- **Robust Persistence**:
-  - **PostgreSQL**: Stores `ChatSession` history, `Message` logs, and `Document` metadata.
-  - **ChromaDB**: Stores vector embeddings.
-  - **File System**: Original uploaded files are safely stored in `uploads/`.
+-   **Stateless Architecture**:
+    -   No database dependency for chat history.
+    -   Conversation state (history & summary) is managed by the client and passed in each request.
+    -   ideal for scalable, cloud-native deployments.
 
-## Tech Stack
+-   **Real-time Streaming**:
+    -   **WebSocket API**: Low-latency streaming of generated text.
+    -   **Standard HTTP**: Traditional request-response API for non-streaming use cases.
 
-- **Backend**: FastAPI (Python 3.11)
-- **Database**: PostgreSQL (Async SQLAlchemy + Alembic Migrations)
-- **Vector Store**: ChromaDB
-- **Infrastructure**: Docker & Docker Compose
+-   **Domain-Specific RAG**:
+    -   **Uploads**: Organize documents into "Domains" (folders).
+    -   **Search Modes**:
+        -   **No Context**: Pure LLM interaction.
+        -   **All Domains**: Search across the entire knowledge base.
+        -   **Specific Domain**: Filter search results to a single domain.
 
-## Quick Start
+-   **Smart Summarization**:
+    -   **Loopback Logic**: Summaries are generated when conversation length exceeds a threshold (`SUMMARY_THRESHOLD`).
+    -   **Token Limits**: Summaries are strictly capped (`SUMMARY_MAX_TOKENS`) to prevent context bloat.
+    -   **Persistence**: The summary is returned to the client and re-injected in future requests to maintain long-term context.
 
-1. **Configure Environment**
-   Copy `.env.example` to `.env` and update values:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your API keys and preferences
-   ```
+-   **Customizable Persona**:
+    -   **System Prompt**: Configurable via API/UI to change the agent's behavior (e.g., "You are a pirate").
+    -   **Parameters**: Fine-tune `temperature`, `top_p`, `max_tokens`, etc.
 
-2. **Run with Docker**
-   Build and start the services. This automatically runs database migrations on startup.
-   ```bash
-   docker-compose up --build
-   ```
+## 🛠️ Tech Stack
 
-   - API: `http://localhost:8000`
-   - API Docs: `http://localhost:8000/docs`
+-   **Backend**: FastAPI (Python 3.11)
+-   **Vector Store**: ChromaDB (Persistent storage in Docker volume)
+-   **LLM Interface**: OpenAI-compatible client (works with LocalAI, vLLM, Ollama, etc.)
+-   **Frontend**: Streamlit (for testing and interaction)
+-   **Containerization**: Docker & Docker Compose
 
-## API Endpoints
+## ⚡ Quick Start
 
-### `POST /api/v1/chat`
-Interact with the agent.
-- **Body**:
-  ```json
-  {
-    "message": "Hello world",
-    "domain": "my-website",
-    "session_id": "optional-uuid",
-    "stream": true
-  }
-  ```
+### 1. Configure Environment
+Copy the example configuration:
+```bash
+cp .env.example .env
+```
+Edit `.env` to set your model details and preferences:
+```ini
+OPENAI_API_KEY=sk-xxx (or 'none' for local)
+OPENAI_BASE_URL=http://host.docker.internal:8080/v1
+MODEL_NAME=gpt-3.5-turbo (or your local model name)
+SUMMARY_THRESHOLD=15
+SUMMARY_MAX_TOKENS=200
+```
 
-### `POST /api/v1/upload`
-Upload a document for a specific domain.
-- **Form Data**:
-  - `file`: The file to upload.
-  - `domain`: Target domain name (e.g., "docs-v1").
+### 2. Run with Docker
+Build and start the services:
+```bash
+docker-compose up --build
+```
+-   **API**: `http://localhost:8000`
+-   **Streamlit UI**: `http://localhost:8501`
 
-## Development
+## 📚 API Reference
 
-- **Migrations**: managed by Alembic.
-  ```bash
-  # Create a new migration (requires local DB connection)
-  alembic revision --autogenerate -m "message"
-  
-  # Apply migrations manually
-  docker-compose exec app alembic upgrade head
-  ```
+### WebSocket Chat (Streaming)
+**Endpoint**: `ws://localhost:8000/api/v1/ws/chat`
+
+**Payload**:
+```json
+{
+  "message": "Hello!",
+  "messages": [{"role": "user", "content": "..."}],
+  "summary": "Previous summary...",
+  "domain": "finance",
+  "system_prompt": "You are a financial advisor.",
+  "stream": true
+}
+```
+
+**Response Stream**:
+-   `{"content": "..."}` (Generated text chunks)
+-   `{"metadata": {"updated_summary": "...", "updated_history": [...]}}` (Final packet)
+
+### HTTP Chat (Non-Streaming)
+**Endpoint**: `POST /api/v1/chat`
+
+**Body**: Same as WebSocket payload.
+
+**Response**:
+```json
+{
+  "response": "Full generated text.",
+  "updated_summary": "...",
+  "updated_history": [...]
+}
+```
+
+### Document Management
+-   **List Documents**: `GET /api/v1/documents`
+-   **Upload Document**: `POST /api/v1/upload`
+    -   Form Data: `file` (binary), `domain` (string)
+
+## 🖥️ Streamlit UI
+
+The included Streamlit app provides a complete interface for:
+-   **Chat**: Interact with the agent, toggle streaming, and view history.
+-   **Management**: Upload files to specific domains and view existing documents.
+-   **Configuration**: Adjust system prompt, model parameters, and search scope in real-time.
+
+To run locally (outside Docker):
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
