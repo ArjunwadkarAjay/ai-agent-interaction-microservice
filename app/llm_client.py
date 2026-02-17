@@ -24,10 +24,11 @@ async def generate_chat_response(messages: list[dict], stream: bool = False, **k
     return response
 
 async def summarize_conversation(history_text: str):
-    prompt = f"Summarize the following conversation concisely to retain key context for future interactions:\n\n{history_text}"
+    prompt = f"Summarize the following conversation concisely in under {settings.SUMMARY_MAX_TOKENS} tokens. Focus on retaining key context, user preferences, and important details for future interactions:\n\n{history_text}"
     response = await client.chat.completions.create(
         model=settings.MODEL_NAME,
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=settings.SUMMARY_MAX_TOKENS,
         stream=False
     )
     return response.choices[0].message.content
