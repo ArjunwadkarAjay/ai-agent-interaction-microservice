@@ -166,7 +166,10 @@ if st.session_state.page == "chat":
                     full_response = result_text
                     # Update state from metadata if available
                     if metadata:
-                        st.session_state.summary = metadata.get("updated_summary")
+                        new_summary = metadata.get("updated_summary")
+                        if new_summary and new_summary != st.session_state.summary:
+                            st.session_state.summary = new_summary
+                            st.toast("Conversation summarized!", icon="📝")
                         # We could update history from API, but for UI consistency let's just append our local assistant msg
                         # Actually, API returns the FULL updated history including the new assistant message.
                         # It's safer to use that for the next request context.
@@ -192,7 +195,10 @@ if st.session_state.page == "chat":
                     message_placeholder.markdown(full_response)
                     
                     # Update state
-                    st.session_state.summary = data.get("updated_summary")
+                    new_summary = data.get("updated_summary")
+                    if new_summary and new_summary != st.session_state.summary:
+                         st.session_state.summary = new_summary
+                         st.toast("Conversation summarized!", icon="📝")
                     api_history = data.get("updated_history", [])
                     st.session_state.history_for_api = []
                     for msg in api_history:
