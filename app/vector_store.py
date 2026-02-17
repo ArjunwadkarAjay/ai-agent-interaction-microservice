@@ -8,26 +8,29 @@ class VectorStore:
         self.client = chromadb.EphemeralClient(
             settings=Settings(anonymized_telemetry=False)
         )
+        self.collection = self.client.get_or_create_collection(name="knowledge_base")
 
-    def get_collection(self, domain_name: str):
-        # Create or get collection ensuring names are safe (basic sanitization)
-        safe_name = domain_name.replace(" ", "_").replace(".", "_")
-        return self.client.get_or_create_collection(name=safe_name)
-
-    def add_documents(self, domain_name: str, documents: list[str], metagenadat: list[dict], ids: list[str]):
-        collection = self.get_collection(domain_name)
-        collection.add(
+    def add_documents(self, domain_name: str, documents: list[str], metadatas: list[dict], ids: list[str]):
+        # Ensure metadata contains domain
+        for meta in metadatas:
+            meta["domain"] = domain_name
+            
+        self.collection.add(
             documents=documents,
-            metadatas=metagenadat,
+            metadatas=metadatas,
             ids=ids
         )
 
-    def query_documents(self, domain_name: str, query_text: str, n_results: int = 3):
+    def query_documents(self, domain_name: str | None, query_text: str, n_results: int = 3):
         try:
-            collection = self.get_collection(domain_name)
-            results = collection.query(
+            where_filter = None
+            if domain_name and domain_name.lower() != "all":
+                where_filter = {"domain": domain_name}
+                
+            results = self.collection.query(
                 query_texts=[query_text],
-                n_results=n_results
+                n_results=n_results,
+                where=where_filter
             )
             return results['documents'][0] if results['documents'] else []
         except Exception as e:

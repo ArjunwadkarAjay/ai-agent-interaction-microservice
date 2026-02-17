@@ -6,12 +6,21 @@ client = AsyncOpenAI(
     base_url=settings.OPENAI_BASE_URL
 )
 
-async def generate_chat_response(messages: list[dict], stream: bool = False, model: str = None):
-    response = await client.chat.completions.create(
-        model=model or settings.MODEL_NAME,
-        messages=messages,
-        stream=stream
-    )
+async def generate_chat_response(messages: list[dict], stream: bool = False, **kwargs):
+    api_kwargs = {
+        "messages": messages,
+        "stream": stream,
+    }
+    # Update with additional parameters (model, temperature, etc.)
+    api_kwargs.update(kwargs)
+
+    if not api_kwargs.get("model") and settings.MODEL_NAME:
+        api_kwargs["model"] = settings.MODEL_NAME
+
+    # Remove keys with None values (e.g. max_tokens if not set)
+    api_kwargs = {k: v for k, v in api_kwargs.items() if v is not None}
+
+    response = await client.chat.completions.create(**api_kwargs)
     return response
 
 async def summarize_conversation(history_text: str):

@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from app.schemas import ChatRequest, ChatResponse, Message
 from app import llm_client
 from app.vector_store import vector_store
@@ -18,10 +17,8 @@ async def process_summary(current_summary: str | None, messages: list[Message]) 
     new_summary = await llm_client.summarize_conversation(text_to_summarize)
     return new_summary
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def prepare_chat_context(request: ChatRequest):
     # 1. Prepare Context & History
-    # We use the messages provided in the request
     messages = request.messages
     current_summary = request.summary
     
@@ -30,23 +27,11 @@ async def chat_endpoint(request: ChatRequest):
     messages.append(user_message)
 
     # 2. Check for Summarization Trigger
-    # If history is too long, we summarize the older part
-    # Strategy: If count > threshold, summarize everything and keep only the last few messages + summary
-    # But for a stateless "smart" client, maybe we just update the summary and return a shorter list?
-    # User requirement: "summary + chats ... if threshold reach then send back summary & response"
-    
     updated_summary = current_summary
     active_history = messages # The history we will use for generation
     
     if len(messages) > settings.SUMMARY_THRESHOLD:
-        # Trigger summarization
-        # We summarize the entire current context (summary + messages)
-        # And we might want to keep only the last N messages for the next turn to keep payload small
-        # For this turn, we ideally use full context to generate response, THEN summarize for return?
-        # OR we summarize FIRST, and use (New Summary + Last N Messages) for generation?
-        # Using (New Summary + Last N) is better for token efficiency.
-        
-        # Let's keep the last 5 messages raw, and summarize the rest including previous summary
+        # Let's keep the last 6 messages raw, and summarize the rest including previous summary
         retention_count = 6
         to_summarize = messages[:-retention_count]
         active_history = messages[-retention_count:]
@@ -55,13 +40,28 @@ async def chat_endpoint(request: ChatRequest):
         
     # 3. Build Context from Vector Store
     context_text = ""
-    if request.domain:
-        documents = vector_store.query_documents(request.domain, request.message)
+    # 3. Build Context from Vector Store
+    context_text = ""
+    # Logic:
+    # - None or "none": Pure LLM (No RAG)
+    # - "all": Search ALL documents (RAG with no filter)
+    # - "specific": Search specific domain (RAG with filter)
+    
+    domain_req = request.domain
+    if domain_req and domain_req.lower() != "none":
+        search_domain = None # Default to None (All) if "all"
+        if domain_req.lower() != "all":
+            search_domain = domain_req
+            
+        documents = vector_store.query_documents(search_domain, request.message)
         if documents:
-            context_text = "\n\nRelevant Domain Context:\n" + "\n".join(documents)
+            context_text = "\n\nRelevant Context:\n" + "\n".join(documents)
 
     # 4. Construct System Prompt
-    system_content = f"You are a helpful AI assistant."
+    # Use custom system prompt if provided, otherwise default
+    base_system_prompt = request.system_prompt if request.system_prompt else "You are a helpful AI assistant."
+    
+    system_content = base_system_prompt
     if updated_summary:
         system_content += f"\n\nPrevious Conversation Summary:\n{updated_summary}"
     if context_text:
@@ -71,42 +71,68 @@ async def chat_endpoint(request: ChatRequest):
     for msg in active_history:
         llm_messages.append({"role": msg.role, "content": msg.content})
     
-    # 5. Generate Response
-    if request.stream:
-        async def response_generator():
-            full_response = ""
-            async for chunk in await llm_client.generate_chat_response(llm_messages, stream=True, model=request.model):
-                content = chunk.choices[0].delta.content
-                if content:
-                    full_response += content
-                    # We stream the content. We also need to send the final updated summary/history at the end?
-                    # SSE usually sends data chunks. 
-                    # We can send a special event for metadata or just rely on client not needing it immediately?
-                    # The client needs the updated history (user msg + ai msg) and updated summary for NEXT request.
-                    # We will send it as a final data packet.
-                    yield f"data: {json.dumps({'content': content})}\n\n"
-            
-            # Final packet with metadata
-            assistant_message = Message(role="assistant", content=full_response)
-            final_history = active_history + [assistant_message]
-            
-            metadata = {
-                "updated_summary": updated_summary,
-                "updated_history": [m.model_dump() for m in final_history]
-            }
-            yield f"data: {json.dumps({'metadata': metadata})}\n\n"
-            yield "data: [DONE]\n\n"
+    # 5. Prepare Generation Args
+    gen_kwargs = {
+        "model": request.model,
+        "temperature": request.temperature,
+        "top_p": request.top_p,
+        "max_tokens": request.max_tokens,
+        "presence_penalty": request.presence_penalty,
+        "frequency_penalty": request.frequency_penalty,
+    }
+    
+    return llm_messages, active_history, updated_summary, gen_kwargs
 
-        return StreamingResponse(response_generator(), media_type="text/event-stream")
-    else:
-        response = await llm_client.generate_chat_response(llm_messages, stream=False, model=request.model)
-        content = response.choices[0].message.content
+@router.websocket("/ws/chat")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        data = await websocket.receive_json()
+        # Parse into ChatRequest
+        request = ChatRequest(**data)
         
-        assistant_message = Message(role="assistant", content=content)
+        llm_messages, active_history, updated_summary, gen_kwargs = await prepare_chat_context(request)
+        
+        full_response = ""
+        async for chunk in await llm_client.generate_chat_response(llm_messages, stream=True, **gen_kwargs):
+            content = chunk.choices[0].delta.content
+            if content:
+                full_response += content
+                await websocket.send_json({"content": content})
+        
+        # Final packet with metadata
+        assistant_message = Message(role="assistant", content=full_response)
         final_history = active_history + [assistant_message]
         
-        return ChatResponse(
-            response=content,
-            updated_summary=updated_summary,
-            updated_history=final_history
-        )
+        metadata = {
+            "updated_summary": updated_summary,
+            "updated_history": [m.model_dump() for m in final_history]
+        }
+        await websocket.send_json({"metadata": metadata})
+        # Optional: verify if we need to send a close frame or keep connection open for next message
+        # Typically chat WS might stay open, but here we treat it as request-response stream
+        # Verify user preference. For now, we just finish this generation. 
+        # Waiting for next message or closing? 
+        # LLM streaming usually ends here for one turn.
+        
+    except WebSocketDisconnect:
+        print("Client disconnected")
+    except Exception as e:
+        await websocket.send_json({"error": str(e)})
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    llm_messages, active_history, updated_summary, gen_kwargs = await prepare_chat_context(request)
+    
+    # Non-streaming only
+    response = await llm_client.generate_chat_response(llm_messages, stream=False, **gen_kwargs)
+    content = response.choices[0].message.content
+    
+    assistant_message = Message(role="assistant", content=content)
+    final_history = active_history + [assistant_message]
+    
+    return ChatResponse(
+        response=content,
+        updated_summary=updated_summary,
+        updated_history=final_history
+    )
